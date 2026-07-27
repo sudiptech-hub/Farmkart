@@ -4,36 +4,63 @@ const { sequelize } = require("../config/database");
 const User = sequelize.define(
   "User",
   {
+    firebaseUid: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      unique: true,
+    },
+
     name: {
       type: DataTypes.STRING,
-      allowNull: false
+      allowNull: false,
     },
 
     email: {
       type: DataTypes.STRING,
       allowNull: false,
-      unique: true
-    },
-
-    password: {
-      type: DataTypes.STRING,
-      allowNull: false
+      unique: true,
+      validate: {
+        isEmail: true,
+      },
     },
 
     role: {
-      type: DataTypes.STRING, // buyer | seller
-      allowNull: false
+      type: DataTypes.ENUM("buyer", "seller"),
+      allowNull: false,
     },
 
-    address: DataTypes.STRING,
-    district: DataTypes.STRING,
-    state: DataTypes.STRING,
-    pin: DataTypes.STRING,
-    mobile: DataTypes.STRING
+    address: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+
+    district: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+
+    state: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+
+    pin: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+
+    mobile: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    picture: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
   },
   {
-    timestamps: false   // ✅ IMPORTANT LINE
-  }
+    timestamps: false,
+  },
 );
 
 module.exports = User;

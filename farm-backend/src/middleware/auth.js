@@ -1,36 +1,52 @@
-const jwt = require("jsonwebtoken");
+const { auth } = require("../firebaseAdmin");
 const { User } = require("../models");
-
-// Must match the secret used in login
-const JWT_SECRET = process.env.JWT_SECRET || "dev_secret";
 
 module.exports = async (req, res, next) => {
   try {
-    const header = req.headers.authorization;
-    if (!header)
-      return res.status(401).json({ error: "Unauthorized - No auth header" });
+    const authHeader = req.headers.authorization;
 
-    const parts = header.split(" ");
-    if (parts.length !== 2 || parts[0] !== "Bearer")
-      return res.status(401).json({ error: "Unauthorized - Token format invalid" });
+    if (!authHeader) {
+      return res.status(401).json({
+        error: "Unauthorized - No Authorization header",
+      });
+    }
 
-    const token = parts[1];
+    const parts = authHeader.split(" ");
 
-    // Verify token using same secret as login
-    const decoded = jwt.verify(token, JWT_SECRET);
+    if (parts.length !== 2 || parts[0] !== "Bearer") {
+      return res.status(401).json({
+        error: "Unauthorized - Invalid token format",
+      });
+    }
 
-    if (!decoded || !decoded.id)
-      return res.status(401).json({ error: "Unauthorized - Token invalid" });
+    const idToken = parts[1];
 
-    // Attach user instance
-    const user = await User.findByPk(decoded.id);
-    if (!user)
-      return res.status(401).json({ error: "Unauthorized - User not found" });
+    // Verify Firebase ID Token
+    const decodedToken = await auth.verifyIdToken(idToken);
 
-    req.user = user; // attach your existing user
+    // Find user in MySQL
+    const user = await User.findOne({
+      where: {
+        firebaseUid: decodedToken.uid,
+      },
+    });
+
+    if (!user) {
+      return res.status(401).json({
+        error: "Unauthorized - User not found",
+      });
+    }
+
+    // Attach data for use in protected routes
+    req.user = user;
+    req.firebaseUser = decodedToken;
+
     next();
-  } catch (err) {
-    console.error("Auth middleware error:", err.message);
-    return res.status(401).json({ error: "Unauthorized" });
+  } catch (error) {
+    console.error("Firebase Auth Error:", error);
+
+    return res.status(401).json({
+      error: "Unauthorized",
+    });
   }
 };

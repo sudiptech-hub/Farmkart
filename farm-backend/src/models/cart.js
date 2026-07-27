@@ -6,22 +6,29 @@ const Cart = sequelize.define(
   {
     buyer_id: {
       type: DataTypes.INTEGER,
-      allowNull: false
+      allowNull: false,
     },
 
     product_id: {
       type: DataTypes.INTEGER,
-      allowNull: false
+      allowNull: false,
     },
 
     quantity: {
       type: DataTypes.FLOAT,
-      allowNull: false
-    }
+      allowNull: false,
+    },
   },
   {
-    timestamps: false
-  }
+    timestamps: false,
+
+    indexes: [
+      {
+        unique: true,
+        fields: ["buyer_id", "product_id"],
+      },
+    ],
+  },
 );
 
 module.exports = Cart;

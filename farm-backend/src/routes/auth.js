@@ -1,103 +1,224 @@
 const express = require("express");
 const router = express.Router();
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
+const otpStore = require("../utils/otpStore");
+const { sendOTP } = require("../services/mailService");
+const { auth } = require("../firebaseAdmin");
 const { User } = require("../models");
 
-// Use the JWT secret from .env (falls back to a default dev_secret if not set)
-const JWT_SECRET = process.env.JWT_SECRET || "dev_secret";
-
-// ----------------------------------------
-// REGISTER
-// ----------------------------------------
+// ========================================
+// REGISTER / FIRST LOGIN
+// ========================================
 router.post("/register", async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { idToken, name, role, address, district, state, pin, mobile } =
+      req.body;
 
-    // Optional: Basic email format validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ error: "Invalid email format" });
+    if (!idToken) {
+      return res.status(400).json({
+        error: "Firebase ID Token is required",
+      });
     }
 
-    // Hash the password
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // Verify Firebase token
+    const decoded = await auth.verifyIdToken(idToken);
 
-    // Create user
-    const user = await User.create({
-      name,
-      email,
-      password: hashedPassword,
-      role,
+    const firebaseUid = decoded.uid;
+    const email = decoded.email;
+
+    let user = await User.findOne({
+      where: { firebaseUid },
     });
 
-    res.json({
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      address: user.address || "",
-      district: user.district || "",
-      state: user.state || "",
-      pin: user.pin || "",
-      mobile: user.mobile || "",
+    if (!user) {
+      user = await User.create({
+        firebaseUid,
+        name,
+        email,
+        role,
+        address,
+        district,
+        state,
+        pin,
+        mobile,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      user,
     });
   } catch (err) {
-    console.error("Register error:", err.message);
-    res.status(500).json({ error: "Failed to register user" });
+    console.error("Register Error:", err);
+
+    return res.status(500).json({
+      success: false,
+      error: err.message,
+    });
   }
 });
 
-// ----------------------------------------
-// LOGIN
-// ----------------------------------------
-router.post("/login", async (req, res) => {
+router.post("/send-otp", async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email } = req.body;
 
-    // Validate email format (optional)
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ error: "Invalid email format" });
+    // Check if already registered
+    const existing = await User.findOne({
+      where: { email },
+    });
+
+    if (existing) {
+      return res.status(400).json({
+        success: false,
+        error: "Email already registered",
+      });
     }
 
-    // Find user by email
-    const user = await User.findOne({ where: { email } });
-    if (!user) {
-      return res.status(401).json({ error: "Invalid credentials" });
-    }
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
-    // Compare password
-    const match = await bcrypt.compare(password, user.password);
-    if (!match) {
-      return res.status(401).json({ error: "Invalid credentials" });
-    }
+    otpStore.set(email, {
+      otp,
+      expires: Date.now() + 5 * 60 * 1000,
+    });
 
-    // Create JWT token with consistent secret
-    const token = jwt.sign(
-      { id: user.id, role: user.role },
-      JWT_SECRET,
-      { expiresIn: "7d" }
-    );
+    await sendOTP(email, otp);
+    console.log("Email before sendOTP:", email);
 
-    // Respond with user and token
     res.json({
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        address: user.address || "",
-        district: user.district || "",
-        state: user.state || "",
-        pin: user.pin || "",
-        mobile: user.mobile || "",
-      },
-      token,
+      success: true,
     });
   } catch (err) {
-    console.error("Login error:", err.message);
-    res.status(500).json({ error: "Failed to login" });
+    console.error(err);
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to send OTP",
+    });
+  }
+});
+
+router.post("/verify-otp", async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    const data = otpStore.get(email);
+
+    if (!data) {
+      return res.status(400).json({
+        success: false,
+        error: "OTP not found",
+      });
+    }
+
+    // Check expiry
+    if (Date.now() > data.expires) {
+      otpStore.delete(email);
+
+      return res.status(400).json({
+        success: false,
+        error: "OTP expired",
+      });
+    }
+
+    // Wrong OTP
+    if (data.otp !== otp) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid OTP",
+      });
+    }
+
+    // Correct OTP
+    otpStore.delete(email);
+
+    return res.json({
+      success: true,
+    });
+  } catch (err) {
+    console.error(err);
+
+    return res.status(500).json({
+      success: false,
+      error: "Server error",
+    });
+  }
+});
+// ========================================
+// LOGIN
+// ========================================
+router.post("/login", async (req, res) => {
+  try {
+    const { idToken } = req.body;
+
+    if (!idToken) {
+      return res.status(400).json({
+        error: "Firebase ID Token is required",
+      });
+    }
+
+    const decoded = await auth.verifyIdToken(idToken);
+
+    const firebaseUid = decoded.uid;
+
+    const user = await User.findOne({
+      where: { firebaseUid },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        error: "User profile not found",
+      });
+    }
+
+    return res.json({
+      success: true,
+      user,
+    });
+  } catch (err) {
+    console.error("Login Error:", err);
+
+    return res.status(401).json({
+      error: "Invalid Firebase Token",
+    });
+  }
+});
+
+// ========================================
+// VERIFY TOKEN
+// ========================================
+router.get("/verify", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader) {
+      return res.status(401).json({
+        error: "Authorization header missing",
+      });
+    }
+
+    const token = authHeader.replace("Bearer ", "");
+
+    const decoded = await auth.verifyIdToken(token);
+
+    const user = await User.findOne({
+      where: {
+        firebaseUid: decoded.uid,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        error: "User not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      user,
+    });
+  } catch (err) {
+    res.status(401).json({
+      error: "Unauthorized",
+    });
   }
 });
 

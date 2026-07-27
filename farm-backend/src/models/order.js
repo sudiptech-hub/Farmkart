@@ -7,17 +7,17 @@ const Order = sequelize.define(
     buyer_id: DataTypes.INTEGER,
     seller_id: DataTypes.INTEGER,
     product_id: DataTypes.INTEGER,
-    quantity: DataTypes.INTEGER,
+    quantity: DataTypes.FLOAT,
     price_at_purchase: DataTypes.FLOAT,
 
     // DATE + TIME
     date: {
       type: DataTypes.DATE,
       allowNull: false,
-      defaultValue: DataTypes.NOW
-    }
+      defaultValue: DataTypes.NOW,
+    },
   },
-  { timestamps: false }
+  { timestamps: false },
 );
 
 module.exports = Order;
